@@ -300,6 +300,7 @@ class _SynchronizedPinyinTextState extends State<_SynchronizedPinyinText> {
         text: text.substring(start, end),
         style: chineseTextStyle.copyWith(
           backgroundColor: Colors.yellow.withValues(alpha: 0.4),
+          height: 1.2, // Reduce height to make highlighting more compact
         ),
       ));
 

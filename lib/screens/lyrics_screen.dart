@@ -91,11 +91,11 @@ class _LyricsScreenState extends State<LyricsScreen> {
     // If pinyin is empty, generate it
     if (lyrics != null) {
       final updatedLines = <LyricLine>[];
-      bool needsUpdate = true;
+      bool needsUpdate = false;
 
       for (final line in lyrics.lines) {
-        if (line.traditionalChinese.isNotEmpty) {
-          // Generate pinyin
+        if (line.traditionalChinese.isNotEmpty && line.pinyin.isEmpty) {
+          // Generate pinyin only if missing
           final pinyin = PinyinService.convertLine(line.traditionalChinese);
 
           updatedLines.add(LyricLine(
