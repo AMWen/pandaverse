@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../data/constants.dart';
 import '../data/models/song_model.dart';
+import '../data/models/lyrics_model.dart';
+import '../data/models/lyric_line_model.dart';
 import '../data/services/lyrics_db_service.dart';
 import '../data/services/dictionary_service.dart';
 import '../data/services/character_converter.dart';
+import '../data/services/pinyin_service.dart';
 import '../data/widgets/song_card_widget.dart';
 import '../data/widgets/sort_chips_widget.dart';
 import '../data/widgets/search_bar_widget.dart';
@@ -27,6 +31,8 @@ class SongListScreenState extends State<SongListScreen> {
   bool _isLoading = true;
   bool _useSimplified = false;
   final TextEditingController _searchController = TextEditingController();
+  Set<String> _songsGeneratingPinyin = {}; // Track which songs are generating pinyin
+  Timer? _refreshTimer;
 
   @override
   void initState() {
@@ -65,10 +71,95 @@ class SongListScreenState extends State<SongListScreen> {
 
   Future<void> loadSongs() async {
     final songs = await LyricsDB.getAllSongs(sortBy: _sortBy, isAscending: _isAscending);
+
+    // Check which songs are generating pinyin
+    final generatingSongs = <String>{};
+    for (final song in songs) {
+      final lyrics = await LyricsDB.getLyricsBySongId(song.id);
+
+      // Mark as generating if:
+      // 1. Lyrics don't exist yet (still being saved)
+      // 2. Lyrics exist but have empty pinyin
+      if (lyrics == null || lyrics.lines.isEmpty) {
+        // No lyrics yet - mark as generating
+        generatingSongs.add(song.id);
+      } else {
+        // Check if any line has empty pinyin
+        final hasEmptyPinyin = lyrics.lines.any((line) => line.pinyin.isEmpty);
+        if (hasEmptyPinyin) {
+          generatingSongs.add(song.id);
+        }
+      }
+    }
+
     setState(() {
       _allSongs = songs;
       _filteredSongs = _filterSongs(songs);
+      _songsGeneratingPinyin = generatingSongs;
     });
+
+    // Trigger pinyin generation for songs that need it
+    for (final songId in generatingSongs) {
+      _generatePinyinForSong(songId);
+    }
+
+    // Start or stop refresh timer based on whether any songs are generating
+    if (generatingSongs.isNotEmpty && _refreshTimer == null) {
+      _startRefreshTimer();
+    } else if (generatingSongs.isEmpty && _refreshTimer != null) {
+      _stopRefreshTimer();
+    }
+  }
+
+  /// Generate pinyin for a song in the background
+  Future<void> _generatePinyinForSong(String songId) async {
+    try {
+      final lyrics = await LyricsDB.getLyricsBySongId(songId);
+      if (lyrics == null) return;
+
+      final updatedLines = <LyricLine>[];
+      bool needsUpdate = false;
+
+      for (int i = 0; i < lyrics.lines.length; i++) {
+        final line = lyrics.lines[i];
+
+        if (line.traditionalChinese.isNotEmpty && line.pinyin.isEmpty) {
+          // Generate pinyin for this line
+          final pinyin = PinyinService.convertLine(line.traditionalChinese);
+
+          updatedLines.add(LyricLine(
+            lineNumber: line.lineNumber,
+            traditionalChinese: line.traditionalChinese,
+            pinyin: pinyin,
+          ));
+          needsUpdate = true;
+        } else {
+          updatedLines.add(line);
+        }
+
+        // Yield to UI thread after every line to keep UI responsive
+        await Future.delayed(Duration.zero);
+      }
+
+      if (needsUpdate) {
+        // Update database with generated pinyin
+        final updatedLyrics = Lyrics(songId: songId, lines: updatedLines);
+        await LyricsDB.insertLyrics(updatedLyrics);
+      }
+    } catch (e) {
+      // Silently fail - will retry on next refresh
+    }
+  }
+
+  void _startRefreshTimer() {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      await loadSongs();
+    });
+  }
+
+  void _stopRefreshTimer() {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
   }
 
   List<Song> _filterSongs(List<Song> songs) {
@@ -102,6 +193,17 @@ class SongListScreenState extends State<SongListScreen> {
   }
 
   Future<void> _navigateToLyrics(Song song) async {
+    // Don't allow opening songs that are still generating pinyin
+    if (_songsGeneratingPinyin.contains(song.id)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please wait for pinyin generation to complete'),
+          duration: Duration(milliseconds: 800),
+        ),
+      );
+      return;
+    }
+
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -125,6 +227,7 @@ class SongListScreenState extends State<SongListScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _stopRefreshTimer();
     super.dispose();
   }
 
@@ -233,7 +336,10 @@ class SongListScreenState extends State<SongListScreen> {
 
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Deleted "${song.title}"')),
+                                  SnackBar(
+                                    content: Text('Deleted "${song.title}"'),
+                                    duration: const Duration(milliseconds: 800),
+                                  ),
                                 );
                               }
                             },
@@ -246,6 +352,7 @@ class SongListScreenState extends State<SongListScreen> {
                                   ? CharacterConverter.toSimplified(song.author)
                                   : song.author,
                               onTap: () => _navigateToLyrics(song),
+                              isGeneratingPinyin: _songsGeneratingPinyin.contains(song.id),
                             ),
                           );
                         },
@@ -257,14 +364,21 @@ class SongListScreenState extends State<SongListScreen> {
   }
 
   Future<void> _showAddSongDialog() async {
-    final result = await showDialog<bool>(
+    final songId = await showDialog<String>(
       context: context,
       builder: (context) => const AddSongDialog(),
     );
 
-    // Reload songs if a song was added
-    if (result == true) {
-      await loadSongs();
+    // If a song was added, start the refresh timer to detect it
+    if (songId != null) {
+      // Start refresh timer if not already running
+      if (_refreshTimer == null) {
+        _startRefreshTimer();
+      }
+      // Trigger one immediate reload after animation completes
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) loadSongs();
+      });
     }
   }
 }

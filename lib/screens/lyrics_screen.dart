@@ -6,7 +6,6 @@ import '../data/models/song_model.dart';
 import '../data/models/lyrics_model.dart';
 import '../data/models/lyric_line_model.dart';
 import '../data/services/lyrics_db_service.dart';
-import '../data/services/pinyin_service.dart';
 import '../data/services/dictionary_service.dart';
 import '../data/services/character_converter.dart';
 import '../data/widgets/lyric_line_widget.dart';
@@ -86,35 +85,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
     _useSimplified = prefs.getBool('useSimplified') ?? false;
 
     // Load lyrics from database
-    var lyrics = await LyricsDB.getLyricsBySongId(widget.song.id);
-
-    // If pinyin is empty, generate it
-    if (lyrics != null) {
-      final updatedLines = <LyricLine>[];
-      bool needsUpdate = false;
-
-      for (final line in lyrics.lines) {
-        if (line.traditionalChinese.isNotEmpty && line.pinyin.isEmpty) {
-          // Generate pinyin only if missing
-          final pinyin = PinyinService.convertLine(line.traditionalChinese);
-
-          updatedLines.add(LyricLine(
-            lineNumber: line.lineNumber,
-            traditionalChinese: line.traditionalChinese,
-            pinyin: pinyin,
-          ));
-          needsUpdate = true;
-        } else {
-          updatedLines.add(line);
-        }
-      }
-
-      if (needsUpdate) {
-        // Update database with generated pinyin
-        lyrics = Lyrics(songId: lyrics.songId, lines: updatedLines);
-        await LyricsDB.insertLyrics(lyrics);
-      }
-    }
+    final lyrics = await LyricsDB.getLyricsBySongId(widget.song.id);
 
     if (mounted) {
       setState(() {

@@ -6,7 +6,6 @@ import '../data/models/lyrics_model.dart';
 import '../data/models/lyric_line_model.dart';
 import '../data/services/lyrics_db_service.dart';
 import '../data/services/character_converter.dart';
-import '../data/services/pinyin_service.dart';
 import '../data/constants.dart';
 
 class AddSongDialog extends StatefulWidget {
@@ -98,7 +97,10 @@ class _AddSongDialogState extends State<AddSongDialog> with SingleTickerProvider
 
     if (plainLyrics == null || plainLyrics.toString().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No lyrics available for this song')),
+        const SnackBar(
+          content: Text('No lyrics available for this song'),
+          duration: Duration(milliseconds: 800),
+        ),
       );
       return;
     }
@@ -168,62 +170,37 @@ class _AddSongDialogState extends State<AddSongDialog> with SingleTickerProvider
       lines: lyricLinesList,
     );
 
-    // Save to database
+    // Close dialog immediately
+    if (mounted) {
+      Navigator.pop(context, songId); // Return song ID to trigger reload
+    }
+
+    // Save to database in the background
     try {
       await LyricsDB.insertSong(song);
       await LyricsDB.insertLyrics(lyrics);
 
-      // Generate pinyin in the background (fire and forget)
-      _generatePinyinInBackground(songId, lyricLinesList);
-
       if (mounted) {
-        Navigator.pop(context, true); // Return true to indicate success
         final message = artist.isEmpty
-            ? 'Added "$title"'
-            : 'Added "$title" by $artist';
+            ? 'Added "$title", will appear shortly'
+            : 'Added "$title" by $artist, will appear shortly';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
+          SnackBar(
+            content: Text(message),
+            duration: const Duration(milliseconds: 800),
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error adding song: $e')),
+          SnackBar(
+            content: Text('Error adding song: $e'),
+            duration: const Duration(milliseconds: 800),
+          ),
         );
       }
     }
-  }
-
-  /// Generate pinyin for all lines in the background
-  void _generatePinyinInBackground(String songId, List<LyricLine> lines) {
-    // Run asynchronously without awaiting
-    Future.microtask(() async {
-      try {
-        final updatedLines = <LyricLine>[];
-
-        for (final line in lines) {
-          if (line.traditionalChinese.isNotEmpty) {
-            // Generate pinyin for this line
-            final pinyin = PinyinService.convertLine(line.traditionalChinese);
-
-            updatedLines.add(LyricLine(
-              lineNumber: line.lineNumber,
-              traditionalChinese: line.traditionalChinese,
-              pinyin: pinyin,
-            ));
-          } else {
-            updatedLines.add(line);
-          }
-        }
-
-        // Update database with generated pinyin
-        final updatedLyrics = Lyrics(songId: songId, lines: updatedLines);
-        await LyricsDB.insertLyrics(updatedLyrics);
-      } catch (e) {
-        // Silently fail - pinyin will be generated when user opens the song
-        debugPrint('Background pinyin generation failed: $e');
-      }
-    });
   }
 
   @override

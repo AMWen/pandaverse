@@ -4,12 +4,12 @@
 library;
 
 class DatabaseSchema {
-  static const int version = 1;
+  static const int version = 2;
 
   /// Creates all tables in the database
   static Future<void> createTables(dynamic db) async {
     await db.execute(songsTableSql);
-    await db.execute(lyricsTableSql);
+    await db.execute(lyricLinesTableSql);
     await db.execute(playHistoryTableSql);
     await db.execute(highlightedWordsTableSql);
   }
@@ -24,11 +24,13 @@ class DatabaseSchema {
     )
   ''';
 
-  static const String lyricsTableSql = '''
-    CREATE TABLE lyrics (
+  static const String lyricLinesTableSql = '''
+    CREATE TABLE lyric_lines (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       song_id TEXT NOT NULL,
-      lyrics_data TEXT NOT NULL,
+      line_number INTEGER NOT NULL,
+      traditional_chinese TEXT NOT NULL,
+      pinyin TEXT NOT NULL DEFAULT '',
       FOREIGN KEY (song_id) REFERENCES songs(id) ON DELETE CASCADE
     )
   ''';

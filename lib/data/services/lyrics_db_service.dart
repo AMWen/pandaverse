@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/song_model.dart';
 import '../models/lyrics_model.dart';
+import '../models/lyric_line_model.dart';
 import 'database_schema.dart';
 
 class LyricsDB {
@@ -33,12 +34,65 @@ class LyricsDB {
       onCreate: (db, version) async {
         await DatabaseSchema.createTables(db);
       },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          // Migrate from version 1 to 2: lyrics table -> lyric_lines table
+          await _migrateToVersion2(db);
+        }
+      },
       onOpen: (db) async {
         // Enable foreign key constraints
         await db.execute('PRAGMA foreign_keys = ON');
       },
     );
     return _db!;
+  }
+
+  /// Migrate from version 1 to version 2
+  static Future<void> _migrateToVersion2(Database db) async {
+    // Create the new lyric_lines table
+    await db.execute(DatabaseSchema.lyricLinesTableSql);
+
+    // Check if old lyrics table exists
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='lyrics'",
+    );
+
+    if (tables.isNotEmpty) {
+      // Migrate data from old lyrics table to new lyric_lines table
+      final oldLyrics = await db.query('lyrics');
+
+      // Use batch for much faster inserts
+      final batch = db.batch();
+
+      for (final row in oldLyrics) {
+        final songId = row['song_id'] as String;
+        final lyricsData = row['lyrics_data'] as String;
+
+        try {
+          // Parse the old JSON format
+          final lyrics = Lyrics.fromJsonString(lyricsData);
+
+          // Add each line to the batch
+          for (final line in lyrics.lines) {
+            batch.insert('lyric_lines', {
+              'song_id': songId,
+              'line_number': line.lineNumber,
+              'traditional_chinese': line.traditionalChinese,
+              'pinyin': line.pinyin,
+            });
+          }
+        } catch (e) {
+          // If parsing fails, skip this song's lyrics
+        }
+      }
+
+      // Commit all inserts at once
+      await batch.commit(noResult: true);
+
+      // Drop the old lyrics table
+      await db.execute('DROP TABLE IF EXISTS lyrics');
+    }
   }
 
   // Insert a song
@@ -67,16 +121,19 @@ class LyricsDB {
     final db = await database;
 
     // First delete existing lyrics for this song
-    await db.delete('lyrics', where: 'song_id = ?', whereArgs: [lyrics.songId]);
+    await db.delete('lyric_lines', where: 'song_id = ?', whereArgs: [lyrics.songId]);
 
-    // Then insert new lyrics
-    await db.insert(
-      'lyrics',
-      {
+    // Then insert each line as a separate row
+    final batch = db.batch();
+    for (final line in lyrics.lines) {
+      batch.insert('lyric_lines', {
         'song_id': lyrics.songId,
-        'lyrics_data': lyrics.toJsonString(),
-      },
-    );
+        'line_number': line.lineNumber,
+        'traditional_chinese': line.traditionalChinese,
+        'pinyin': line.pinyin,
+      });
+    }
+    await batch.commit(noResult: true);
   }
 
   // Get all songs
@@ -138,15 +195,21 @@ class LyricsDB {
   static Future<Lyrics?> getLyricsBySongId(String songId) async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
-      'lyrics',
+      'lyric_lines',
       where: 'song_id = ?',
       whereArgs: [songId],
+      orderBy: 'line_number ASC',
     );
 
     if (maps.isEmpty) return null;
 
-    final lyricsData = maps.first['lyrics_data'] as String;
-    return Lyrics.fromJsonString(lyricsData);
+    final lines = maps.map((map) => LyricLine(
+      lineNumber: map['line_number'] as int,
+      traditionalChinese: map['traditional_chinese'] as String,
+      pinyin: map['pinyin'] as String,
+    )).toList();
+
+    return Lyrics(songId: songId, lines: lines);
   }
 
   // Delete a song and its lyrics

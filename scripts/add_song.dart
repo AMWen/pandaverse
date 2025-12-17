@@ -362,17 +362,19 @@ void main() async {
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
 
-    // Insert lyrics
-    final lyricsData = jsonEncode({
-      'song_id': songId,
-      'lines': lyricLinesList.map((l) => l.toJson()).toList(),
-    });
+    // Insert lyrics - each line as a separate row
+    await db.delete('lyric_lines', where: 'song_id = ?', whereArgs: [songId]);
 
-    await db.delete('lyrics', where: 'song_id = ?', whereArgs: [songId]);
-    await db.insert('lyrics', {
-      'song_id': songId,
-      'lyrics_data': lyricsData,
-    });
+    final batch = db.batch();
+    for (final line in lyricLinesList) {
+      batch.insert('lyric_lines', {
+        'song_id': songId,
+        'line_number': line.lineNumber,
+        'traditional_chinese': line.traditionalChinese,
+        'pinyin': line.pinyin,
+      });
+    }
+    await batch.commit(noResult: true);
 
     await db.close();
 
