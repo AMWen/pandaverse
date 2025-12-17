@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../data/constants.dart';
 import '../data/services/lyrics_db_service.dart';
 import '../data/services/dictionary_service.dart';
+import '../data/services/pinyin_service.dart';
 import '../data/widgets/sort_chips_widget.dart';
 import '../data/widgets/search_bar_widget.dart';
 import 'lyrics_screen.dart';
@@ -80,39 +81,6 @@ class VocabularyReviewScreenState extends State<VocabularyReviewScreen> {
     return allSongTitles.isNotEmpty && _expandedSongs.containsAll(allSongTitles);
   }
 
-  /// Remove tone marks from pinyin for normalized searching
-  String _removeToneMarks(String pinyin) {
-    return pinyin
-        // Tone 1 (flat)
-        .replaceAll(RegExp(r'[āĀ]'), 'a')
-        .replaceAll(RegExp(r'[ēĒ]'), 'e')
-        .replaceAll(RegExp(r'[īĪ]'), 'i')
-        .replaceAll(RegExp(r'[ōŌ]'), 'o')
-        .replaceAll(RegExp(r'[ūŪ]'), 'u')
-        .replaceAll(RegExp(r'[ǖǕ]'), 'ü')
-        // Tone 2 (rising)
-        .replaceAll(RegExp(r'[áÁ]'), 'a')
-        .replaceAll(RegExp(r'[éÉ]'), 'e')
-        .replaceAll(RegExp(r'[íÍ]'), 'i')
-        .replaceAll(RegExp(r'[óÓ]'), 'o')
-        .replaceAll(RegExp(r'[úÚ]'), 'u')
-        .replaceAll(RegExp(r'[ǘǗ]'), 'ü')
-        // Tone 3 (falling-rising)
-        .replaceAll(RegExp(r'[ǎǍ]'), 'a')
-        .replaceAll(RegExp(r'[ěĚ]'), 'e')
-        .replaceAll(RegExp(r'[ǐǏ]'), 'i')
-        .replaceAll(RegExp(r'[ǒǑ]'), 'o')
-        .replaceAll(RegExp(r'[ǔǓ]'), 'u')
-        .replaceAll(RegExp(r'[ǚǙ]'), 'ü')
-        // Tone 4 (falling)
-        .replaceAll(RegExp(r'[àÀ]'), 'a')
-        .replaceAll(RegExp(r'[èÈ]'), 'e')
-        .replaceAll(RegExp(r'[ìÌ]'), 'i')
-        .replaceAll(RegExp(r'[òÒ]'), 'o')
-        .replaceAll(RegExp(r'[ùÙ]'), 'u')
-        .replaceAll(RegExp(r'[ǜǛ]'), 'ü');
-  }
-
   void _filterWords(String query) {
     if (!mounted) return;
     setState(() {
@@ -121,12 +89,12 @@ class VocabularyReviewScreenState extends State<VocabularyReviewScreen> {
         _filteredWords = _allWords;
       } else {
         final searchLower = query.toLowerCase();
-        final searchNormalized = _removeToneMarks(searchLower);
+        final searchNormalized = PinyinService.removeToneMarks(searchLower);
 
         _filteredWords = _allWords.where((word) {
           final wordText = (word['word_text'] as String).toLowerCase();
           final wordPinyin = (word['word_pinyin'] as String).toLowerCase();
-          final wordPinyinNormalized = _removeToneMarks(wordPinyin);
+          final wordPinyinNormalized = PinyinService.removeToneMarks(wordPinyin);
           final songTitle = (word['song_title'] as String).toLowerCase();
           final songAuthor = (word['song_author'] as String).toLowerCase();
 

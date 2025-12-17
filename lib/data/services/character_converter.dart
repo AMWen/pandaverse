@@ -13,6 +13,10 @@ class CharacterConverter {
     '干': '幹',  // Not 乾 (when meaning "do/work")
     '复': '複',  // Not 復 (when meaning "complex")
     '于': '於',  // Not 于 (when meaning "at/in")
+    '却': '卻',  // Not 㕁
+    '并': '並',  // Not 并
+    '后': '後',  // Not 后
+    '离': '離',  // Not 离
   };
 
   /// Validate if a string is valid UTF-16

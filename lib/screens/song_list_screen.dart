@@ -165,11 +165,26 @@ class SongListScreenState extends State<SongListScreen> {
   List<Song> _filterSongs(List<Song> songs) {
     if (_searchQuery.isEmpty) return songs;
 
+    final queryLower = _searchQuery.toLowerCase();
+    final queryNormalized = PinyinService.removeToneMarks(queryLower);
+
     return songs.where((song) {
       final titleLower = song.title.toLowerCase();
       final authorLower = song.author.toLowerCase();
-      final queryLower = _searchQuery.toLowerCase();
-      return titleLower.contains(queryLower) || authorLower.contains(queryLower);
+
+      // Convert title and author to pinyin
+      final titlePinyin = PinyinService.convertLine(song.title).toLowerCase();
+      final titlePinyinNormalized = PinyinService.removeToneMarks(titlePinyin);
+      final authorPinyin = PinyinService.convertLine(song.author).toLowerCase();
+      final authorPinyinNormalized = PinyinService.removeToneMarks(authorPinyin);
+
+      // Search in Chinese text, pinyin with tones, and pinyin without tones
+      return titleLower.contains(queryLower) ||
+          authorLower.contains(queryLower) ||
+          titlePinyin.contains(queryLower) ||
+          titlePinyinNormalized.contains(queryNormalized) ||
+          authorPinyin.contains(queryLower) ||
+          authorPinyinNormalized.contains(queryNormalized);
     }).toList();
   }
 
@@ -262,7 +277,7 @@ class SongListScreenState extends State<SongListScreen> {
           // Search bar
           SearchBarWidget(
             controller: _searchController,
-            hintText: 'Search songs or artists...',
+            hintText: 'Search by title, artist, or pinyin...',
             searchQuery: _searchQuery,
             onChanged: _onSearchChanged,
           ),

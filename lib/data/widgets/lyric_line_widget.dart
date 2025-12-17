@@ -135,8 +135,8 @@ class _SynchronizedPinyinTextState extends State<_SynchronizedPinyinText> {
     }
 
     // Apply multiplier to account for TextPainter width calculation differences
-    final pinyinMultiplier = 1.0;
-    final charMultiplier = 1.0;
+    final pinyinMultiplier = 0.99;
+    final charMultiplier = 0.98;
 
     final wrapPoints = <int>[];
     int currentOffset = 0;

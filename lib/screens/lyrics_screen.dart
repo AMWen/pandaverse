@@ -86,6 +86,39 @@ class _LyricsScreenState extends State<LyricsScreen> {
     }
   }
 
+  /// Build a tappable text widget for app bar (title/author)
+  Widget _buildTappableAppBarText(String text, TextStyle style) {
+    int charIndex = 0;
+    return RichText(
+      text: TextSpan(
+        children: text.characters.map((char) {
+          final currentIndex = charIndex;
+          charIndex++;
+          return WidgetSpan(
+            alignment: PlaceholderAlignment.baseline,
+            baseline: TextBaseline.alphabetic,
+            child: GestureDetector(
+              onTapDown: (details) {
+                _showTranslation(
+                  context,
+                  text,
+                  currentIndex,
+                  details.globalPosition,
+                  null, // No character box available for app bar
+                  -1, // Not a lyric line
+                );
+              },
+              child: Text(
+                char,
+                style: style,
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   /// Build a TextSpan with tappable Chinese characters in definitions
   TextSpan _buildTappableDefinition(String definition, BuildContext context, TextStyle baseStyle) {
     final spans = <InlineSpan>[];
@@ -220,7 +253,9 @@ class _LyricsScreenState extends State<LyricsScreen> {
                     child: Row(
                       children: [
                         Text(
-                          entry.traditional,
+                          _useSimplified
+                              ? CharacterConverter.toSimplified(entry.traditional)
+                              : entry.traditional,
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -446,10 +481,16 @@ class _LyricsScreenState extends State<LyricsScreen> {
       // Show above: align bottom of tooltip with top of character
       top = characterBox.top - estimatedHeight - 4;
     } else {
-      // Fallback to tap position
-      top = globalPosition.dy + 20;
+      // Fallback to tap position (for app bar or when character box not available)
+      // Try to show below the tap first
+      top = globalPosition.dy + 10;
       if (top + estimatedHeight > screenSize.height - padding) {
-        top = globalPosition.dy - estimatedHeight - 20;
+        // Not enough space below, show above
+        top = globalPosition.dy - estimatedHeight - 8;
+      }
+      // Keep on screen
+      if (top < padding) {
+        top = padding;
       }
     }
 
@@ -480,7 +521,15 @@ class _LyricsScreenState extends State<LyricsScreen> {
               child: Material(
                 color: Colors.transparent,
                 child: GestureDetector(
-                  onTap: _removeOverlay, // Tap on tooltip to dismiss
+                  onTap: () {
+                    // If secondary overlay exists, only remove that
+                    // Otherwise remove both overlays
+                    if (_secondaryOverlayEntry != null) {
+                      _removeSecondaryOverlay();
+                    } else {
+                      _removeOverlay();
+                    }
+                  },
                   child: Container(
                   width: tooltipWidth,
                   constraints: const BoxConstraints(maxHeight: tooltipMaxHeight),
@@ -521,7 +570,9 @@ class _LyricsScreenState extends State<LyricsScreen> {
                               child: Row(
                                 children: [
                                   // Make each character tappable for individual translation
-                                  ...entry.traditional.characters.map((char) => GestureDetector(
+                                  ...(_useSimplified
+                                      ? CharacterConverter.toSimplified(entry.traditional)
+                                      : entry.traditional).characters.map((char) => GestureDetector(
                                     onTapDown: (details) {
                                       _showCharacterTranslation(
                                         context,
@@ -626,10 +677,17 @@ class _LyricsScreenState extends State<LyricsScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.song.title, style: const TextStyle(fontSize: 20)),
-            Text(
-              widget.song.author,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.normal),
+            _buildTappableAppBarText(
+              _useSimplified
+                  ? CharacterConverter.toSimplified(widget.song.title)
+                  : widget.song.title,
+              const TextStyle(fontSize: 20, color: Colors.white),
+            ),
+            _buildTappableAppBarText(
+              _useSimplified
+                  ? CharacterConverter.toSimplified(widget.song.author)
+                  : widget.song.author,
+              const TextStyle(fontSize: 14, fontWeight: FontWeight.normal, color: Colors.white),
             ),
           ],
         ),
@@ -668,9 +726,13 @@ class _LyricsScreenState extends State<LyricsScreen> {
               : GestureDetector(
                   behavior: HitTestBehavior.translucent,
                   onTap: () {
-                    // Dismiss overlay when tapping empty space
-                    // Character taps will be handled by their GestureDetectors before this
-                    _removeOverlay();
+                    // If secondary overlay is showing, only remove that
+                    // Otherwise remove the main overlay
+                    if (_secondaryOverlayEntry != null) {
+                      _removeSecondaryOverlay();
+                    } else {
+                      _removeOverlay();
+                    }
                   },
                   child: Scrollbar(
                     controller: _scrollController,

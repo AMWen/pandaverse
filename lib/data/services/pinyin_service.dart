@@ -119,4 +119,38 @@ class PinyinService {
     }
     return false;
   }
+
+  /// Remove tone marks from pinyin for normalized searching
+  /// Converts toned pinyin (e.g., "nǐ hǎo") to toneless (e.g., "ni hao")
+  static String removeToneMarks(String pinyin) {
+    return pinyin
+        // Tone 1 (flat)
+        .replaceAll(RegExp(r'[āĀ]'), 'a')
+        .replaceAll(RegExp(r'[ēĒ]'), 'e')
+        .replaceAll(RegExp(r'[īĪ]'), 'i')
+        .replaceAll(RegExp(r'[ōŌ]'), 'o')
+        .replaceAll(RegExp(r'[ūŪ]'), 'u')
+        .replaceAll(RegExp(r'[ǖǕ]'), 'ü')
+        // Tone 2 (rising)
+        .replaceAll(RegExp(r'[áÁ]'), 'a')
+        .replaceAll(RegExp(r'[éÉ]'), 'e')
+        .replaceAll(RegExp(r'[íÍ]'), 'i')
+        .replaceAll(RegExp(r'[óÓ]'), 'o')
+        .replaceAll(RegExp(r'[úÚ]'), 'u')
+        .replaceAll(RegExp(r'[ǘǗ]'), 'ü')
+        // Tone 3 (falling-rising)
+        .replaceAll(RegExp(r'[ǎǍ]'), 'a')
+        .replaceAll(RegExp(r'[ěĚ]'), 'e')
+        .replaceAll(RegExp(r'[ǐǏ]'), 'i')
+        .replaceAll(RegExp(r'[ǒǑ]'), 'o')
+        .replaceAll(RegExp(r'[ǔǓ]'), 'u')
+        .replaceAll(RegExp(r'[ǚǙ]'), 'ü')
+        // Tone 4 (falling)
+        .replaceAll(RegExp(r'[àÀ]'), 'a')
+        .replaceAll(RegExp(r'[èÈ]'), 'e')
+        .replaceAll(RegExp(r'[ìÌ]'), 'i')
+        .replaceAll(RegExp(r'[òÒ]'), 'o')
+        .replaceAll(RegExp(r'[ùÙ]'), 'u')
+        .replaceAll(RegExp(r'[ǜǛ]'), 'ü');
+  }
 }
