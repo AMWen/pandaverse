@@ -35,6 +35,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
   int? _currentStart;
   int? _currentEnd;
   Set<String> _highlightedWords = {}; // Set of "lineIndex:start:end" strings
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
@@ -59,6 +60,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
     // Mark overlay as inactive first to prevent any pending updates
     _overlayActive = false;
     _removeOverlay();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -670,10 +672,17 @@ class _LyricsScreenState extends State<LyricsScreen> {
                     // Character taps will be handled by their GestureDetectors before this
                     _removeOverlay();
                   },
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _lyrics!.lines.length,
-                    itemBuilder: (context, index) {
+                  child: Scrollbar(
+                    controller: _scrollController,
+                    thumbVisibility: true,
+                    interactive: true,
+                    thickness: 6.0,
+                    radius: const Radius.circular(3),
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _lyrics!.lines.length,
+                      itemBuilder: (context, index) {
                       final line = _lyrics!.lines[index];
                       // Convert to simplified if preference is set
                       final displayText = _useSimplified
@@ -708,6 +717,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
                         highlightedRanges: lineHighlights,
                       );
                     },
+                    ),
                   ),
                 ),
     );
