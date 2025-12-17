@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../data/constants.dart';
@@ -27,7 +28,9 @@ class _LyricsScreenState extends State<LyricsScreen> {
   bool _isLoading = true;
   bool _useSimplified = false;
   OverlayEntry? _overlayEntry;
+  OverlayEntry? _secondaryOverlayEntry;
   bool _overlayActive = false;
+  double? _mainOverlayTop; // Track main overlay vertical position
   int? _currentLineIndex;
   int? _currentStart;
   int? _currentEnd;
@@ -60,6 +63,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
   }
 
   void _removeOverlay() {
+    _removeSecondaryOverlay();
     if (_overlayEntry != null) {
       _overlayEntry!.remove();
       _overlayEntry = null;
@@ -70,6 +74,205 @@ class _LyricsScreenState extends State<LyricsScreen> {
     _currentLineIndex = null;
     _currentStart = null;
     _currentEnd = null;
+    _mainOverlayTop = null;
+  }
+
+  void _removeSecondaryOverlay() {
+    if (_secondaryOverlayEntry != null) {
+      _secondaryOverlayEntry!.remove();
+      _secondaryOverlayEntry = null;
+    }
+  }
+
+  /// Build a TextSpan with tappable Chinese characters in definitions
+  TextSpan _buildTappableDefinition(String definition, BuildContext context, TextStyle baseStyle) {
+    final spans = <InlineSpan>[];
+    final regex = RegExp(r'[\u4e00-\u9fff]+'); // Matches Chinese characters
+    int lastIndex = 0;
+
+    for (final match in regex.allMatches(definition)) {
+      // Add text before the Chinese characters
+      if (match.start > lastIndex) {
+        spans.add(TextSpan(text: definition.substring(lastIndex, match.start)));
+      }
+
+      // Add tappable Chinese characters
+      final chineseText = match.group(0)!;
+      spans.add(TextSpan(
+        text: chineseText,
+        style: baseStyle.copyWith(
+          color: Theme.of(context).colorScheme.primary,
+          decoration: TextDecoration.underline,
+          decorationStyle: TextDecorationStyle.dotted,
+        ),
+        recognizer: TapGestureRecognizer()
+          ..onTapDown = (details) {
+            _showCharacterTranslation(context, chineseText, details.globalPosition);
+          },
+      ));
+
+      lastIndex = match.end;
+    }
+
+    // Add remaining text
+    if (lastIndex < definition.length) {
+      spans.add(TextSpan(text: definition.substring(lastIndex)));
+    }
+
+    return TextSpan(style: baseStyle, children: spans);
+  }
+
+  void _showCharacterTranslation(BuildContext context, String character, Offset globalPosition) {
+    // Remove any existing secondary overlay
+    _removeSecondaryOverlay();
+
+    // Look up the character in the dictionary
+    final wordMatch = DictionaryService.findWordMatchAtPosition(character, 0);
+    if (wordMatch == null) {
+      return; // No translation found for this character
+    }
+
+    final entry = wordMatch.entry;
+    final screenSize = MediaQuery.of(context).size;
+    const tooltipWidth = 240.0;
+    const maxHeight = 250.0;
+    const padding = 16.0;
+    const mainOverlayWidth = 280.0; // Width of main overlay
+
+    // Try to position to the right of the main overlay
+    // Estimate main overlay center position from screen center
+    final mainOverlayLeft = (screenSize.width - mainOverlayWidth) / 2;
+    final mainOverlayRight = mainOverlayLeft + mainOverlayWidth;
+
+    double left;
+    // Align vertically with main overlay if we know its position, otherwise center
+    double top = _mainOverlayTop ?? (screenSize.height / 2 - maxHeight / 2);
+
+    // Try right side first
+    if (mainOverlayRight + padding + tooltipWidth < screenSize.width - padding) {
+      left = mainOverlayRight + padding;
+    }
+    // Try left side if no space on right
+    else if (mainOverlayLeft - padding - tooltipWidth > padding) {
+      left = mainOverlayLeft - tooltipWidth - padding;
+    }
+    // Fallback: center horizontally, offset vertically from main
+    else {
+      left = (screenSize.width - tooltipWidth) / 2;
+      // If main overlay position known, offset below it; otherwise position lower
+      if (_mainOverlayTop != null) {
+        top = _mainOverlayTop! + 50; // Position below main overlay
+      } else {
+        top = screenSize.height * 0.65;
+      }
+    }
+
+    // Keep on screen
+    if (top < padding) top = padding;
+    if (top + maxHeight > screenSize.height - padding) {
+      top = screenSize.height - maxHeight - padding;
+    }
+
+    // Create secondary overlay
+    _secondaryOverlayEntry = OverlayEntry(
+      builder: (context) => Positioned(
+        left: left,
+        top: top,
+        child: Material(
+          color: Colors.transparent,
+          child: GestureDetector(
+            onTap: _removeSecondaryOverlay,
+            child: Container(
+              width: tooltipWidth,
+              constraints: const BoxConstraints(maxHeight: maxHeight),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.secondaryContainer,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.secondary,
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(7),
+                        topRight: Radius.circular(7),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Text(
+                          entry.traditional,
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.onSecondary,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            entry.pinyin,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.onSecondary.withValues(alpha: 0.8),
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Definitions
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: entry.definitions.asMap().entries.map((e) {
+                          final baseStyle = TextStyle(
+                            fontSize: 13,
+                            color: Theme.of(context).colorScheme.onSecondaryContainer,
+                          );
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: RichText(
+                              text: _buildTappableDefinition(
+                                '${e.key + 1}. ${e.value}',
+                                context,
+                                baseStyle,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Overlay.of(context).insert(_secondaryOverlayEntry!);
   }
 
   Future<void> _loadLyrics() async {
@@ -260,6 +463,9 @@ class _LyricsScreenState extends State<LyricsScreen> {
       top = padding;
     }
 
+    // Store the main overlay position for secondary overlay alignment
+    _mainOverlayTop = top;
+
     // Create overlay entry
     _overlayEntry = OverlayEntry(
       builder: (context) => StatefulBuilder(
@@ -312,14 +518,27 @@ class _LyricsScreenState extends State<LyricsScreen> {
                             Expanded(
                               child: Row(
                                 children: [
-                                  Text(
-                                    entry.traditional,
-                                    style: TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                  // Make each character tappable for individual translation
+                                  ...entry.traditional.characters.map((char) => GestureDetector(
+                                    onTapDown: (details) {
+                                      _showCharacterTranslation(
+                                        context,
+                                        char,
+                                        details.globalPosition,
+                                      );
+                                    },
+                                    child: Text(
+                                      char,
+                                      style: TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.bold,
+                                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                        decoration: TextDecoration.underline,
+                                        decorationStyle: TextDecorationStyle.dotted,
+                                        decorationColor: Theme.of(context).colorScheme.onPrimaryContainer.withValues(alpha: 0.5),
+                                      ),
                                     ),
-                                  ),
+                                  )),
                                   const SizedBox(width: 8),
                                   Flexible(
                                     child: Text(
@@ -367,11 +586,15 @@ class _LyricsScreenState extends State<LyricsScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: entry.definitions.asMap().entries.map((e) {
-                              return Text(
-                                '${e.key + 1}. ${e.value}',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Theme.of(context).colorScheme.onSurface,
+                              final baseStyle = TextStyle(
+                                fontSize: 14,
+                                color: Theme.of(context).colorScheme.onSurface,
+                              );
+                              return RichText(
+                                text: _buildTappableDefinition(
+                                  '${e.key + 1}. ${e.value}',
+                                  context,
+                                  baseStyle,
                                 ),
                               );
                             }).toList(),
