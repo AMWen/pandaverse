@@ -8,6 +8,7 @@ class LyricLineWidget extends StatefulWidget {
   final Function(int tapIndex, Offset globalPosition, Rect? characterBox) onTap;
   final bool showDebugOverlay;
   final List<Map<String, int>> highlightedRanges; // List of {start, end} maps
+  final bool enableTap; // Whether to enable character-level tap handling
 
   const LyricLineWidget({
     super.key,
@@ -15,6 +16,7 @@ class LyricLineWidget extends StatefulWidget {
     required this.onTap,
     this.showDebugOverlay = false,
     this.highlightedRanges = const [],
+    this.enableTap = true,
   });
 
   @override
@@ -75,8 +77,7 @@ class _LyricLineWidgetState extends State<LyricLineWidget> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
-      margin: const EdgeInsets.only(bottom: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: Colors.grey[50],
         borderRadius: BorderRadius.circular(8),
@@ -91,6 +92,7 @@ class _LyricLineWidgetState extends State<LyricLineWidget> {
             showDebugOverlay: widget.showDebugOverlay,
             onTap: widget.onTap,
             highlightedRanges: widget.highlightedRanges,
+            enableTap: widget.enableTap,
           );
         },
       ),
@@ -106,6 +108,7 @@ class _SynchronizedPinyinText extends StatefulWidget {
   final bool showDebugOverlay;
   final Function(int tapIndex, Offset globalPosition, Rect? characterBox) onTap;
   final List<Map<String, int>> highlightedRanges;
+  final bool enableTap;
 
   const _SynchronizedPinyinText({
     required this.text,
@@ -114,6 +117,7 @@ class _SynchronizedPinyinText extends StatefulWidget {
     required this.showDebugOverlay,
     required this.onTap,
     required this.highlightedRanges,
+    required this.enableTap,
   });
 
   @override
@@ -390,11 +394,15 @@ class _SynchronizedPinyinTextState extends State<_SynchronizedPinyinText> {
       // Create a unique key for each row
       final rowKey = GlobalKey();
 
+      final rowWidget = _buildPinyinAndText(rowPinyin, rowText, rowKey, characterOffset);
+
       rows.add(
-        GestureDetector(
-          onTapDown: (details) => _handleTapOnRow(details, rowKey, rowText, characterOffset),
-          child: _buildPinyinAndText(rowPinyin, rowText, rowKey, characterOffset),
-        ),
+        widget.enableTap
+            ? GestureDetector(
+                onTapDown: (details) => _handleTapOnRow(details, rowKey, rowText, characterOffset),
+                child: rowWidget,
+              )
+            : rowWidget,
       );
 
       lastPoint = endPoint;

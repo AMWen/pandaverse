@@ -350,6 +350,41 @@ class LyricsDB {
     await updateLastActivity(songId);
   }
 
+  // Insert a new lyric line at a specific position and renumber subsequent lines
+  static Future<void> insertLyricLine({
+    required String songId,
+    required int lineNumber,
+    required String traditionalChinese,
+    required String pinyin,
+  }) async {
+    final db = await database;
+
+    // Renumber all lines at and after the insertion point
+    await db.rawUpdate('''
+      UPDATE lyric_lines
+      SET line_number = line_number + 1
+      WHERE song_id = ? AND line_number >= ?
+    ''', [songId, lineNumber]);
+
+    // Renumber highlighted words for lines at and after the insertion point
+    await db.rawUpdate('''
+      UPDATE highlighted_words
+      SET line_index = line_index + 1
+      WHERE song_id = ? AND line_index >= ?
+    ''', [songId, lineNumber]);
+
+    // Insert the new line
+    await db.insert('lyric_lines', {
+      'song_id': songId,
+      'line_number': lineNumber,
+      'traditional_chinese': traditionalChinese,
+      'pinyin': pinyin,
+    });
+
+    // Update last activity for the song
+    await updateLastActivity(songId);
+  }
+
   // Delete a single lyric line and renumber remaining lines
   static Future<void> deleteLyricLine({
     required String songId,

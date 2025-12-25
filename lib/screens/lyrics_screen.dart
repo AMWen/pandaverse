@@ -432,14 +432,14 @@ class _LyricsScreenState extends State<LyricsScreen> {
     await _loadHighlightedWords();
   }
 
-  Future<void> _showEditLineDialog(int lineNumber, String currentText) async {
+  Future<void> _showEditLineDialog(int lineNumber, String currentText, {bool isNewLine = false}) async {
     final textController = TextEditingController(text: currentText);
 
     try {
       final result = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Edit Lyrics Line', style: TextStyles.dialogTitle),
+          title: Text(isNewLine ? 'Add Lyrics Line' : 'Edit Lyrics Line', style: TextStyles.dialogTitle),
           content: TextField(
             controller: textController,
             decoration: const InputDecoration(
@@ -457,7 +457,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
             ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Save'),
+              child: Text(isNewLine ? 'Add' : 'Save'),
             ),
           ],
         ),
@@ -465,17 +465,28 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
       if (result == true && mounted) {
         final newText = textController.text;
+        if (newText.trim().isEmpty) return; // Don't add empty lines
+
         // Convert to traditional Chinese if needed
         final traditionalText = CharacterConverter.toTraditional(newText);
         // Generate pinyin from the traditional text
         final newPinyin = PinyinService.convertLine(traditionalText);
 
-        await LyricsDB.updateLyricLine(
-          songId: widget.song.id,
-          lineNumber: lineNumber,
-          traditionalChinese: traditionalText,
-          pinyin: newPinyin,
-        );
+        if (isNewLine) {
+          await LyricsDB.insertLyricLine(
+            songId: widget.song.id,
+            lineNumber: lineNumber,
+            traditionalChinese: traditionalText,
+            pinyin: newPinyin,
+          );
+        } else {
+          await LyricsDB.updateLyricLine(
+            songId: widget.song.id,
+            lineNumber: lineNumber,
+            traditionalChinese: traditionalText,
+            pinyin: newPinyin,
+          );
+        }
 
         // Reload lyrics and highlighted words
         await _loadLyrics();
@@ -918,7 +929,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
                     radius: const Radius.circular(3),
                     child: ListView.builder(
                       controller: _scrollController,
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
                       itemCount: _lyrics!.lines.length,
                       itemBuilder: (context, index) {
                       final line = _lyrics!.lines[index];
@@ -955,13 +966,16 @@ class _LyricsScreenState extends State<LyricsScreen> {
                             : (tapIndex, globalPosition, characterBox) => _showTranslation(context, displayText, tapIndex, globalPosition, characterBox, index),
                         showDebugOverlay: false,  // param to adjust for debugging
                         highlightedRanges: lineHighlights,
+                        enableTap: !_isEditMode, // Disable tap handler in edit mode
                       );
 
                       // Wrap in edit mode UI (checkbox + dismissible)
+                      Widget displayWidget = lyricWidget;
+
                       if (_isEditMode) {
                         final isSelected = _selectedLineNumbers.contains(line.lineNumber);
 
-                        return Dismissible(
+                        displayWidget = Dismissible(
                           key: Key('${widget.song.id}_${line.lineNumber}'),
                           direction: DismissDirection.endToStart,
                           background: Container(
@@ -1001,7 +1015,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
                               // Checkbox for bulk selection
                               Container(
                                 width: 18,
-                                padding: EdgeInsets.symmetric(vertical: 12),
+                                padding: const EdgeInsets.only(top: 12),
                                 child: Transform.scale(
                                   scale: 0.8,
                                   child: Checkbox(
@@ -1023,9 +1037,47 @@ class _LyricsScreenState extends State<LyricsScreen> {
                             ],
                           ),
                         );
+
+                        // Wrap with add buttons
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Add button
+                            SizedBox(
+                              height: 20,
+                              child: Center(
+                                child: IconButton(
+                                  icon: const Icon(Icons.add_circle_outline, size: 18),
+                                  onPressed: () => _showEditLineDialog(index, '', isNewLine: true),
+                                  tooltip: 'Add line here',
+                                  constraints: const BoxConstraints(),
+                                  visualDensity: VisualDensity.compact,
+                                  padding: EdgeInsets.zero,
+                                ),
+                              ),
+                            ),
+                            // Lyric line
+                            displayWidget,
+                            // Add button at the end after last line
+                            if (index == _lyrics!.lines.length - 1)
+                              SizedBox(
+                                height: 20,
+                                child: Center(
+                                  child: IconButton(
+                                    icon: const Icon(Icons.add_circle_outline, size: 18),
+                                    onPressed: () => _showEditLineDialog(_lyrics!.lines.length, '', isNewLine: true),
+                                    tooltip: 'Add line here',
+                                    constraints: const BoxConstraints(),
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
                       }
 
-                      return lyricWidget;
+                      return displayWidget;
                     },
                     ),
                   ),
