@@ -40,6 +40,11 @@ class TextStyles {
     fontWeight: FontWeight.bold,
   );
 
+  static const TextStyle dialogTitle = TextStyle(
+    fontSize: 18,
+    fontWeight: FontWeight.w700,
+  );
+
   static const TextStyle bodyText = TextStyle(
     fontSize: 16,
   );

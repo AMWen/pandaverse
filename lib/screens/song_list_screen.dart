@@ -329,7 +329,7 @@ class SongListScreenState extends State<SongListScreen> {
                               return await showDialog<bool>(
                                 context: context,
                                 builder: (context) => AlertDialog(
-                                  title: const Text('Delete Song'),
+                                  title: const Text('Delete Song', style: TextStyles.dialogTitle),
                                   content: Text('Are you sure you want to delete "${song.title}"?'),
                                   actions: [
                                     TextButton(

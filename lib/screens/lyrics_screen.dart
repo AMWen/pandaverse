@@ -9,6 +9,7 @@ import '../data/models/lyric_line_model.dart';
 import '../data/services/lyrics_db_service.dart';
 import '../data/services/dictionary_service.dart';
 import '../data/services/character_converter.dart';
+import '../data/services/pinyin_service.dart';
 import '../data/widgets/lyric_line_widget.dart';
 
 class LyricsScreen extends StatefulWidget {
@@ -27,6 +28,8 @@ class _LyricsScreenState extends State<LyricsScreen> {
   Lyrics? _lyrics;
   bool _isLoading = true;
   bool _useSimplified = false;
+  bool _isEditMode = false;
+  final Set<int> _selectedLineNumbers = {}; // Track selected lines for bulk delete
   OverlayEntry? _overlayEntry;
   OverlayEntry? _secondaryOverlayEntry;
   bool _overlayActive = false;
@@ -348,6 +351,142 @@ class _LyricsScreenState extends State<LyricsScreen> {
     // Save preference to SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('useSimplified', _useSimplified);
+  }
+
+  void _toggleEditMode() {
+    // Remove overlay when entering edit mode
+    if (!_isEditMode) {
+      _removeOverlay();
+    }
+
+    setState(() {
+      _isEditMode = !_isEditMode;
+      // Clear selections when exiting edit mode
+      if (!_isEditMode) {
+        _selectedLineNumbers.clear();
+      }
+    });
+  }
+
+  void _toggleLineSelection(int lineNumber) {
+    setState(() {
+      if (_selectedLineNumbers.contains(lineNumber)) {
+        _selectedLineNumbers.remove(lineNumber);
+      } else {
+        _selectedLineNumbers.add(lineNumber);
+      }
+    });
+  }
+
+  Future<void> _bulkDeleteLines() async {
+    if (_selectedLineNumbers.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Lines', style: TextStyles.dialogTitle),
+        content: Text('Are you sure you want to delete ${_selectedLineNumbers.length} line(s)?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      // Sort line numbers in descending order to delete from bottom to top
+      // This prevents issues with renumbering
+      final sortedLines = _selectedLineNumbers.toList()..sort((a, b) => b.compareTo(a));
+
+      for (final lineNumber in sortedLines) {
+        await LyricsDB.deleteLyricLine(
+          songId: widget.song.id,
+          lineNumber: lineNumber,
+        );
+      }
+
+      setState(() {
+        _selectedLineNumbers.clear();
+      });
+
+      // Reload lyrics and highlighted words
+      await _loadLyrics();
+      await _loadHighlightedWords();
+    }
+  }
+
+  Future<void> _deleteLine(int lineNumber) async {
+    await LyricsDB.deleteLyricLine(
+      songId: widget.song.id,
+      lineNumber: lineNumber,
+    );
+
+    // Reload lyrics and highlighted words
+    await _loadLyrics();
+    await _loadHighlightedWords();
+  }
+
+  Future<void> _showEditLineDialog(int lineNumber, String currentText) async {
+    final textController = TextEditingController(text: currentText);
+
+    try {
+      final result = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Edit Lyrics Line', style: TextStyles.dialogTitle),
+          content: TextField(
+            controller: textController,
+            decoration: const InputDecoration(
+              labelText: 'Chinese Text',
+              border: OutlineInputBorder(),
+              helperText: 'Pinyin will be auto-generated',
+            ),
+            maxLines: null,
+            autofocus: true,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      );
+
+      if (result == true && mounted) {
+        final newText = textController.text;
+        // Convert to traditional Chinese if needed
+        final traditionalText = CharacterConverter.toTraditional(newText);
+        // Generate pinyin from the traditional text
+        final newPinyin = PinyinService.convertLine(traditionalText);
+
+        await LyricsDB.updateLyricLine(
+          songId: widget.song.id,
+          lineNumber: lineNumber,
+          traditionalChinese: traditionalText,
+          pinyin: newPinyin,
+        );
+
+        // Reload lyrics and highlighted words
+        await _loadLyrics();
+        await _loadHighlightedWords();
+      }
+    } finally {
+      // Schedule disposal after dialog animation completes
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        textController.dispose();
+      });
+    }
   }
 
   String _makeWordKey(int lineIndex, int start, int end) {
@@ -694,15 +833,52 @@ class _LyricsScreenState extends State<LyricsScreen> {
         backgroundColor: primaryColor,
         actions: [
           // Toggle between simplified and traditional
-          TextButton(
-            onPressed: _toggleCharacterScript,
-            child: Text(
-              _useSimplified ? '简' : '繁',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+          if (!_isEditMode || _selectedLineNumbers.isEmpty)
+            TextButton(
+              onPressed: _toggleCharacterScript,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
+              child: Text(
+                _useSimplified ? '简' : '繁',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          // Bulk delete button (shown when items are selected in edit mode)
+          if (_isEditMode && _selectedLineNumbers.isNotEmpty)
+            IconButton(
+              onPressed: _bulkDeleteLines,
+              style: IconButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: Colors.white,
+              ),
+              tooltip: 'Delete ${_selectedLineNumbers.length} line(s)',
+              icon: const Icon(
+                Icons.delete,
+                size: 20,
+              ),
+            ),
+          // Toggle edit mode
+          IconButton(
+            onPressed: _toggleEditMode,
+            style: IconButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: Colors.white,
+            ),
+            tooltip: _isEditMode ? 'Done editing' : 'Edit lyrics',
+            icon: FaIcon(
+              _isEditMode ? FontAwesomeIcons.check : FontAwesomeIcons.penToSquare,
+              size: 18,
             ),
           ),
         ],
@@ -772,12 +948,84 @@ class _LyricsScreenState extends State<LyricsScreen> {
                         }
                       }
 
-                      return LyricLineWidget(
+                      final lyricWidget = LyricLineWidget(
                         line: displayLine,
-                        onTap: (tapIndex, globalPosition, characterBox) => _showTranslation(context, displayText, tapIndex, globalPosition, characterBox, index),
+                        onTap: _isEditMode
+                            ? (_, __, ___) {} // Disable character tap in edit mode
+                            : (tapIndex, globalPosition, characterBox) => _showTranslation(context, displayText, tapIndex, globalPosition, characterBox, index),
                         showDebugOverlay: false,  // param to adjust for debugging
                         highlightedRanges: lineHighlights,
                       );
+
+                      // Wrap in edit mode UI (checkbox + dismissible)
+                      if (_isEditMode) {
+                        final isSelected = _selectedLineNumbers.contains(line.lineNumber);
+
+                        return Dismissible(
+                          key: Key('${widget.song.id}_${line.lineNumber}'),
+                          direction: DismissDirection.endToStart,
+                          background: Container(
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.only(right: 20),
+                            color: Colors.red,
+                            child: const Icon(
+                              Icons.delete,
+                              color: Colors.white,
+                            ),
+                          ),
+                          confirmDismiss: (direction) async {
+                            return await showDialog<bool>(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Delete Line', style: TextStyles.dialogTitle),
+                                content: const Text('Are you sure you want to delete this line?'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.of(context).pop(false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.of(context).pop(true),
+                                    child: const Text('Delete'),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                          onDismissed: (direction) async {
+                            await _deleteLine(line.lineNumber);
+                          },
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Checkbox for bulk selection
+                              Container(
+                                width: 18,
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                child: Transform.scale(
+                                  scale: 0.8,
+                                  child: Checkbox(
+                                    value: isSelected,
+                                    onChanged: (_) => _toggleLineSelection(line.lineNumber),
+                                    visualDensity: VisualDensity.compact,
+                                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              // Lyric line (takes remaining space) - wrapped in GestureDetector for full card tap
+                              Expanded(
+                                child: GestureDetector(
+                                  onTap: () => _showEditLineDialog(line.lineNumber, line.traditionalChinese),
+                                  child: lyricWidget,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return lyricWidget;
                     },
                     ),
                   ),

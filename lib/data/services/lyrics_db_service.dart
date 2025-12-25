@@ -321,6 +321,74 @@ class LyricsDB {
     return result.isNotEmpty;
   }
 
+  // Update a single lyric line
+  static Future<void> updateLyricLine({
+    required String songId,
+    required int lineNumber,
+    required String traditionalChinese,
+    required String pinyin,
+  }) async {
+    final db = await database;
+    await db.update(
+      'lyric_lines',
+      {
+        'traditional_chinese': traditionalChinese,
+        'pinyin': pinyin,
+      },
+      where: 'song_id = ? AND line_number = ?',
+      whereArgs: [songId, lineNumber],
+    );
+
+    // Delete highlighted words for this line since positions may have changed
+    await db.delete(
+      'highlighted_words',
+      where: 'song_id = ? AND line_index = ?',
+      whereArgs: [songId, lineNumber],
+    );
+
+    // Update last activity for the song
+    await updateLastActivity(songId);
+  }
+
+  // Delete a single lyric line and renumber remaining lines
+  static Future<void> deleteLyricLine({
+    required String songId,
+    required int lineNumber,
+  }) async {
+    final db = await database;
+
+    // Delete the line
+    await db.delete(
+      'lyric_lines',
+      where: 'song_id = ? AND line_number = ?',
+      whereArgs: [songId, lineNumber],
+    );
+
+    // Renumber all lines after the deleted one
+    await db.rawUpdate('''
+      UPDATE lyric_lines
+      SET line_number = line_number - 1
+      WHERE song_id = ? AND line_number > ?
+    ''', [songId, lineNumber]);
+
+    // Delete highlighted words for this line
+    await db.delete(
+      'highlighted_words',
+      where: 'song_id = ? AND line_index = ?',
+      whereArgs: [songId, lineNumber],
+    );
+
+    // Renumber highlighted words for lines after the deleted one
+    await db.rawUpdate('''
+      UPDATE highlighted_words
+      SET line_index = line_index - 1
+      WHERE song_id = ? AND line_index > ?
+    ''', [songId, lineNumber]);
+
+    // Update last activity for the song
+    await updateLastActivity(songId);
+  }
+
   // Close database
   static Future<void> close() async {
     final db = _db;

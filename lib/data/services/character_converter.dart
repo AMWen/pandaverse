@@ -17,6 +17,7 @@ class CharacterConverter {
     '并': '並',  // Not 并
     '后': '後',  // Not 后
     '离': '離',  // Not 离
+    '从': '從',  // Not 从
   };
 
   /// Validate if a string is valid UTF-16
